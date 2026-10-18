@@ -1,0 +1,9 @@
+#!/bin/bash
+set -euo pipefail
+APP="$(cd "$(dirname "$0")/.." && pwd)/build/Wink.app/Contents/MacOS/Wink"
+if [ ! -x "$APP" ]; then
+    printf '%s\n' '{"version":1,"ok":false,"error":{"code":"not_built","message":"Build Wink first with bash scripts/build.sh."}}'
+    exit 1
+fi
+if [ "$#" -eq 0 ]; then set -- --help; fi
+exec "$APP" "$@"
