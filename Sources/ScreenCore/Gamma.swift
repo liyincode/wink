@@ -245,7 +245,9 @@ public final class BlackoutSession {
             }
             let matches = restored.red.count == original.red.count
                 && restored.green.count == original.green.count && restored.blue.count == original.blue.count
-            let delta = zip(original.red + original.green + original.blue, restored.red + restored.green + restored.blue)
+            let originalSamples = original.red + original.green + original.blue
+            let restoredSamples = restored.red + restored.green + restored.blue
+            let delta: Float = zip(originalSamples, restoredSamples)
                 .map { abs($0 - $1) }.max() ?? .infinity
             if failures[original.id] != nil || !matches || delta >= 0.002 {
                 remaining.append(original)

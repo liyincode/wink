@@ -68,7 +68,9 @@ if arguments.contains("--restore") || arguments.contains("--cycle-test") {
                 guard let restored = after.first(where: { $0.id == original.id }), restored.red.count == original.red.count else {
                     throw ScreenError(L10n.text("The displays or Gamma table sizes do not match after restoration."))
                 }
-                let delta = zip(original.red + original.green + original.blue, restored.red + restored.green + restored.blue)
+                let originalSamples = original.red + original.green + original.blue
+                let restoredSamples = restored.red + restored.green + restored.blue
+                let delta: Float = zip(originalSamples, restoredSamples)
                     .map { abs($0 - $1) }.max() ?? 0
                 guard delta < 0.002 else { throw ScreenError(L10n.text("Gamma differs too much after restoration: %@.", String(delta))) }
                 print("RESTORED: \(original.id), maxDelta=\(delta)")
