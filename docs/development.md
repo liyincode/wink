@@ -31,6 +31,16 @@ bash scripts/package-release.sh
 
 The ZIP and SHA-256 checksum are written to `build/releases/`. The script builds in a fresh directory without replacing a running development app. It refuses to overwrite an existing release package. The app includes the MIT license and is not notarized by Apple.
 
+## Automated releases
+
+GitHub Actions runs core tests, English and Chinese AppKit checks, packaging, and archive verification on an Apple Silicon runner for pushes to `main` and pull requests. Build artifacts are retained for 14 days.
+
+To publish a version, update the version and build number in `scripts/build.sh` and the fallback values in `Sources/Wink/AppInfo.swift`, then add `docs/releases/vX.Y.Z.md`. Commit and push the changes, then push the matching `vX.Y.Z` tag. After all checks pass, the workflow publishes a Release with the ZIP and SHA-256 checksum. Tags must match the app version; existing releases are not overwritten. No Apple signing certificate is configured, so the app remains ad-hoc signed and unnotarized.
+
+CI checks do not exercise physical display blackout, hot-plug behavior, or Gatekeeper prompts after downloading.
+
+## Display checks
+
 Inspect displays without changing them:
 
 ```sh
