@@ -20,7 +20,7 @@ English · [简体中文](README.zh-CN.md)
 
 **macOS 13+ · Apple Silicon (M-series)**
 
-[Installation guide](docs/development.md#installation)
+[**Download Wink**](https://github.com/liyincode/wink/releases/latest) · [Installation help](docs/development.md#installation)
 
 ## Keep in mind
 

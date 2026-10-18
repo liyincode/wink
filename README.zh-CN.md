@@ -20,7 +20,7 @@ Wink 起初是为了解决我自己的一个需求：Agent 还在操作电脑，
 
 **macOS 13 及以上 · Apple Silicon（M 系列芯片）**
 
-[安装说明](docs/development.md#installation)
+[**下载 Wink**](https://github.com/liyincode/wink/releases/latest) · [安装说明](docs/development.md#installation)
 
 ## 使用须知
 
