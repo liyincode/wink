@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Sources/Wink/Resources/mascot-wink.png" width="120" alt="Wink 角色">
+  <img src="docs/images/wink-demo.gif" width="120" alt="Wink 角色眨眼">
 </p>
 
 # Wink
@@ -11,10 +11,6 @@ Wink 起初是为了解决我自己的一个需求：Agent 还在操作电脑，
 [English](README.md) · 简体中文
 
 [![CI](https://github.com/liyincode/wink/actions/workflows/ci.yml/badge.svg)](https://github.com/liyincode/wink/actions/workflows/ci.yml)
-
-<p align="center">
-  <img src="docs/images/wink-demo.gif" width="320" alt="Wink 睁眼与闭眼演示">
-</p>
 
 ## 安装
 

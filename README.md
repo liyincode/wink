@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Sources/Wink/Resources/mascot-wink.png" width="120" alt="Wink mascot">
+  <img src="docs/images/wink-demo.gif" width="120" alt="Wink mascot blinking">
 </p>
 
 # Wink
@@ -11,10 +11,6 @@ Wink started with a problem I had: my agent was still using my computer, and I w
 English · [简体中文](README.zh-CN.md)
 
 [![CI](https://github.com/liyincode/wink/actions/workflows/ci.yml/badge.svg)](https://github.com/liyincode/wink/actions/workflows/ci.yml)
-
-<p align="center">
-  <img src="docs/images/wink-demo.gif" width="320" alt="Wink opening and closing its eyes">
-</p>
 
 ## Install
 
