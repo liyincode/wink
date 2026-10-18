@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/wink-demo.gif" width="120" alt="Wink mascot blinking">
+  <img src="docs/images/wink-blink.png" width="120" alt="Wink mascot blinking">
 </p>
 
 # Wink
