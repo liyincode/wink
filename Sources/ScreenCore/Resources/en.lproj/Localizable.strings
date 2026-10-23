@@ -34,6 +34,8 @@
 "Scheduled blackout is on" = "Scheduled blackout is on";
 "Wink is already running. Use the menu bar or shortcut." = "Wink is already running. Use the menu bar or shortcut.";
 "Wink is keeping the desktop active" = "Wink is keeping the desktop active";
+"Unable to keep this Mac awake. Try reopening Wink." = "Unable to keep this Mac awake. Try reopening Wink.";
+"Unable to monitor the laptop lid. Wink will not prevent sleep. Try reopening Wink." = "Unable to monitor the laptop lid. Wink will not prevent sleep. Try reopening Wink.";
 "Screens are blacked out" = "Screens are blacked out";
 "Select at least one day." = "Select at least one day.";
 "Settings" = "Settings";

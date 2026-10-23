@@ -34,6 +34,8 @@
 "Scheduled blackout is on" = "定时黑屏已开启";
 "Wink is already running. Use the menu bar or shortcut." = "Wink 已在运行，请使用菜单栏或快捷键。";
 "Wink is keeping the desktop active" = "Wink 正在保持桌面运行";
+"Unable to keep this Mac awake. Try reopening Wink." = "无法保持电脑唤醒，请尝试重新打开 Wink。";
+"Unable to monitor the laptop lid. Wink will not prevent sleep. Try reopening Wink." = "无法检测合盖状态，Wink 将不阻止睡眠，请尝试重新打开 Wink。";
 "Screens are blacked out" = "屏幕已调黑";
 "Select at least one day." = "请至少选择一天。";
 "Settings" = "设置";

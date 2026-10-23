@@ -1,7 +1,6 @@
 import AppKit
 import Carbon
 import Darwin
-import IOKit.pwr_mgt
 import ScreenCore
 
 let journalURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -103,8 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var displayCallbackRegistered = false
     var showingError = false
     var reportedDisplayError: String?
-    var assertion: IOPMAssertionID = 0
-    var assertionActive = false
+    let awake = KeepAwake()
+    let lidMonitor = LidMonitor()
     var observers: [NSObjectProtocol] = []
     var contextMenu: NSMenu!
     var shortcutItem: NSMenuItem!
@@ -155,17 +154,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerShortcuts()
         if arguments.contains("--settings") { showSettings() } else { showPanel() }
         let center = NSWorkspace.shared.notificationCenter
-        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.displayConfigurationChanged(beginning: false)
-            })
-        }
+        observers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            do { try self.awake.didWake(lidClosed: self.lidMonitor.isClosed()) }
+            catch {
+                try? self.awake.didWake(lidClosed: true)
+                self.showError(error)
+            }
+            self.displayConfigurationChanged(beginning: false)
+        })
+        observers.append(center.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.displayConfigurationChanged(beginning: false)
+        })
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                if name == NSWorkspace.willSleepNotification { self?.awake.willSleep() }
                 self?.cancelScheduleOccurrence()
                 self?.performRestore()
             })
         }
+        do {
+            let closed = try lidMonitor.start { [weak self] closed in
+                guard let self else { return }
+                do { try self.awake.lidChanged(closed: closed) } catch { self.showError(error) }
+            }
+            try awake.start(lidClosed: closed)
+        } catch { showError(error) }
         scheduleTimer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.checkSchedule() }
         RunLoop.main.add(scheduleTimer!, forMode: .common)
         do {
@@ -293,10 +307,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         do {
             if toBlack && !session.isActive {
-                let result = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
-                    IOPMAssertionLevel(kIOPMAssertionLevelOn), L10n.text("Wink is keeping the desktop active") as CFString, &assertion)
-                guard result == kIOReturnSuccess else { throw ScreenError(L10n.text("Unable to keep the display session active. Displays were not darkened.")) }
-                assertionActive = true
+                try awake.refresh()
+                guard awake.isActive else { throw ScreenError(L10n.text("Unable to keep the display session active. Displays were not darkened.")) }
                 try session.prepareDimming()
             }
             fade.target(toBlack)
@@ -323,14 +335,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 fadeTimer?.invalidate(); fadeTimer = nil
                 if !fade.targetBlack {
                     try session.restore()
-                    releaseAwake()
                 }
                 updateStatus()
                 if !agentReplies.isEmpty { finishAgentRequests(agentStatusResponse()) }
             }
         } catch let error as DisplayUnavailableError {
             if !fade.isRunning { fadeTimer?.invalidate(); fadeTimer = nil }
-            if !session.isDimming { releaseAwake() }
             updateStatus()
             finishAgentRequests(.failure("display_unavailable", error.localizedDescription))
             reportDisplayUnavailable(error)
@@ -411,7 +421,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var failure: Error?
         do { try session.restore() } catch { failure = error }
         fade.reset(isBlack: session.isActive)
-        releaseAwake()
         updateStatus()
         if reportErrors, let failure { showError(failure) }
         return failure
@@ -504,10 +513,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func releaseAwake() {
-        if assertionActive { IOPMAssertionRelease(assertion); assertionActive = false }
-    }
-
     func updateStatus() {
         status.button?.image = Mascot.menuIcon(isBlack: session.isActive)
         let recovery = toggleHotKey == nil ? "⌃⌥⌘B" : toggleShortcut.display
@@ -539,6 +544,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func quitApp() { NSApp.terminate(nil) }
 
     func applicationWillTerminate(_ notification: Notification) {
+        awake.stop()
+        lidMonitor.stop()
         displaySettleTimer?.invalidate()
         if displayCallbackRegistered {
             CGDisplayRemoveReconfigurationCallback(displayReconfigurationCallback, Unmanaged.passUnretained(self).toOpaque())
@@ -548,7 +555,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         cancelScheduleOccurrence()
         performRestore()
-        if !session.isActive { agentServer.stop() }
+        if !session.isActive { awake.stop(); agentServer.stop() }
         return session.isActive ? .terminateCancel : .terminateNow
     }
 }
