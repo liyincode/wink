@@ -32,8 +32,31 @@ public struct ScreenError: LocalizedError {
 }
 
 public protocol GammaDevice {
-    func capture() throws -> [GammaSnapshot]
+    func read() throws -> GammaRead
     func apply(_ snapshot: GammaSnapshot) throws
+}
+
+public struct GammaRead {
+    public let snapshots: [GammaSnapshot]
+    public let failures: [String: ScreenError]
+    public init(snapshots: [GammaSnapshot], failures: [String: ScreenError] = [:]) {
+        self.snapshots = snapshots; self.failures = failures
+    }
+    public var onlineIDs: Set<String> { Set(snapshots.map(\.id)).union(failures.keys) }
+}
+
+/// A display is still online but cannot be read; keep other displays and recovery records intact.
+public struct DisplayUnavailableError: LocalizedError {
+    public let message: String
+    public var errorDescription: String? { message }
+}
+
+public extension GammaDevice {
+    func capture() throws -> [GammaSnapshot] {
+        let reading = try read()
+        if let id = reading.failures.keys.sorted().first { throw reading.failures[id]! }
+        return reading.snapshots
+    }
 }
 
 public final class SystemGamma: GammaDevice {
@@ -59,21 +82,28 @@ public final class SystemGamma: GammaDevice {
         }
     }
 
-    public func capture() throws -> [GammaSnapshot] {
-        try displays().compactMap { uuid, id -> GammaSnapshot? in
+    public func read() throws -> GammaRead {
+        var snapshots: [GammaSnapshot] = []
+        var failures: [String: ScreenError] = [:]
+        for (uuid, id) in try displays() {
             let capacity: UInt32 = 4096
             var r = [Float](repeating: 0, count: Int(capacity))
             var g = r, b = r, count: UInt32 = 0
             let result = CGGetDisplayTransferByTable(id, capacity, &r, &g, &b, &count)
             guard result == .success, count > 0, count <= capacity else {
-                if CGDisplayIsOnline(id) == 0 { return nil }
-                throw ScreenError(L10n.text("Unable to read display Gamma for %@ (error %@).", String(uuid), String(result.rawValue)))
+                if CGDisplayIsOnline(id) == 0 { continue }
+                failures[uuid] = ScreenError(L10n.text("Unable to read display Gamma for %@ (error %@).", uuid, String(result.rawValue)))
+                continue
             }
             let snapshot = GammaSnapshot(id: uuid, red: Array(r.prefix(Int(count))),
                                          green: Array(g.prefix(Int(count))), blue: Array(b.prefix(Int(count))))
-            guard snapshot.valid else { throw ScreenError(L10n.text("The display returned invalid Gamma data.")) }
-            return snapshot
+            guard snapshot.valid else {
+                failures[uuid] = ScreenError(L10n.text("The display returned invalid Gamma data."))
+                continue
+            }
+            snapshots.append(snapshot)
         }
+        return GammaRead(snapshots: snapshots, failures: failures)
     }
 
     public func apply(_ snapshot: GammaSnapshot) throws {
@@ -98,6 +128,8 @@ public final class BlackoutSession {
     private let uptime: () -> TimeInterval
     private var configurationUntil: TimeInterval = 0
     private var configurationBeginning = false
+    private var unavailableSince: [String: TimeInterval] = [:]
+    public var hasUnavailableDisplays: Bool { !unavailableSince.isEmpty }
     public var isSettlingDisplays: Bool { uptime() < configurationUntil }
     public var isReconfiguringDisplays: Bool { configurationBeginning && isSettlingDisplays }
 
@@ -163,17 +195,47 @@ public final class BlackoutSession {
         do { try device.apply(snapshot) }
         catch {
             // A cable can be removed between enumeration and the Gamma write.
-            if try device.capture().contains(where: { $0.id == snapshot.id }) { throw error }
+            let reading = try readDisplays()
+            guard reading.onlineIDs.contains(snapshot.id) else { return }
+            if reading.failures[snapshot.id] != nil {
+                try reportUnavailable(reading)
+                return
+            }
+            throw error
         }
+    }
+
+    private func readDisplays() throws -> GammaRead {
+        let reading = try device.read()
+        unavailableSince = unavailableSince.filter { reading.failures[$0.key] != nil }
+        for id in reading.failures.keys where unavailableSince[id] == nil {
+            unavailableSince[id] = uptime()
+            NSLog("Wink display read deferred: %@", reading.failures[id]!.message)
+        }
+        return reading
+    }
+
+    private func reportUnavailable(_ reading: GammaRead, relevantIDs: Set<String>? = nil) throws {
+        let expired = reading.failures.keys.filter {
+            (relevantIDs == nil || relevantIDs!.contains($0)) && uptime() - (unavailableSince[$0] ?? uptime()) >= 5
+        }
+        guard !expired.isEmpty else { return }
+        throw DisplayUnavailableError(message: expired.sorted().map {
+            L10n.text("Display %@ is temporarily unavailable. Wink will keep retrying. Other displays are unchanged.", $0)
+        }.joined(separator: "\n"))
     }
 
     /// Reconcile hot-plug changes without altering the user's current blackout intent.
     public func synchronizeDisplays() throws {
+        guard isDimming || hasPendingRecovery else { return }
         guard !isReconfiguringDisplays else { return }
-        let ids = Set(try device.capture().map(\.id))
+        let wasUnavailable = hasUnavailableDisplays
+        let reading = try readDisplays()
+        let ids = reading.onlineIDs
         let changed = ids != connectedIDs
         if changed { displayConfigurationChanged() }
-        guard changed || isSettlingDisplays else { return }
+        guard changed || isSettlingDisplays || wasUnavailable || hasUnavailableDisplays
+            || (!isDimming && hasPendingRecovery) else { return }
         connectedIDs = ids
         if let amount = dimmingAmount { try setDimming(amount) }
         else if hasPendingRecovery { try restore() }
@@ -185,17 +247,22 @@ public final class BlackoutSession {
         }
         let factor = Float(1 - amount)
         do {
-            let current = try device.capture()
+            let reading = try readDisplays()
+            let current = reading.snapshots
             try remember(current)
-            let ids = Set(current.map(\.id))
+            let ids = reading.onlineIDs
             if ids != connectedIDs { displayConfigurationChanged() }
             connectedIDs = ids
             dimmingAmount = amount
-            for screen in saved where connectedIDs.contains(screen.id) {
+            let readableIDs = Set(current.map(\.id))
+            for screen in saved where readableIDs.contains(screen.id) {
                 try applyIfConnected(GammaSnapshot(id: screen.id, red: screen.red.map { $0 * factor },
                                                green: screen.green.map { $0 * factor }, blue: screen.blue.map { $0 * factor }))
             }
+            if amount > 0 { try reportUnavailable(reading) }
             if amount == 1 { try verifyBlackout() }
+        } catch let error as DisplayUnavailableError {
+            throw error
         } catch {
             let original = error.localizedDescription
             do { try restore() } catch {
@@ -207,17 +274,22 @@ public final class BlackoutSession {
     }
 
     public func isBlack() throws -> Bool {
-        let current = try device.capture()
-        return isActive && current.allSatisfy { screen in saved.contains(where: { $0.id == screen.id }) && screen.peak < 0.002 }
+        // Status queries must not consume a pending reconciliation when a display becomes ready.
+        let reading = try device.read()
+        return isActive && reading.failures.isEmpty && reading.snapshots.allSatisfy {
+            screen in saved.contains(where: { $0.id == screen.id }) && screen.peak < 0.002
+        }
     }
 
     public func verifyBlackout() throws {
         // Quartz may reset Gamma after reporting a configuration change. Reapply while
         // settling, then resume strict verification; a permanently ignored write still fails.
         guard !isSettlingDisplays else { return }
-        let current = try device.capture()
+        let reading = try readDisplays()
+        try reportUnavailable(reading)
+        let current = reading.snapshots
         // A topology change during verification is handled by the next reconciliation.
-        guard Set(current.map(\.id)) == connectedIDs else { return }
+        guard reading.onlineIDs == connectedIDs else { return }
         guard current.allSatisfy({ $0.peak < 0.002 }) else {
             throw ScreenError(L10n.text("The display did not accept the blackout settings. Restoration was attempted."))
         }
@@ -225,17 +297,19 @@ public final class BlackoutSession {
 
     public func restore() throws {
         dimmingAmount = nil
-        guard hasPendingRecovery else { isActive = false; return }
+        guard hasPendingRecovery else { isActive = false; unavailableSince = [:]; return }
         // Failures remain active; offline-only records do not determine the UI state.
         isActive = true
-        let before = try device.capture()
-        connectedIDs = Set(before.map(\.id))
+        let before = try readDisplays()
+        connectedIDs = before.onlineIDs
+        let readableIDs = Set(before.snapshots.map(\.id))
         var failures: [String: String] = [:]
-        for snapshot in saved where connectedIDs.contains(snapshot.id) {
+        for snapshot in saved where readableIDs.contains(snapshot.id) {
             do { try applyIfConnected(snapshot) } catch { failures[snapshot.id] = error.localizedDescription }
         }
-        let current = try device.capture()
-        connectedIDs = Set(current.map(\.id))
+        let reading = try readDisplays()
+        let current = reading.snapshots
+        connectedIDs = reading.onlineIDs
         var remaining: [GammaSnapshot] = []
         for original in saved {
             guard let restored = current.first(where: { $0.id == original.id }) else {
@@ -256,7 +330,9 @@ public final class BlackoutSession {
         }
         // Remove only individually verified baselines; unplugged displays stay recoverable.
         if remaining != saved { try persist(remaining) }
-        isActive = !failures.isEmpty
+        if saved.isEmpty { unavailableSince = [:] }
+        isActive = !failures.isEmpty || !Set(saved.map(\.id)).isDisjoint(with: reading.failures.keys)
         if !failures.isEmpty { throw ScreenError(Array(Set(failures.values)).sorted().joined(separator: "\n")) }
+        try reportUnavailable(reading, relevantIDs: Set(saved.map(\.id)))
     }
 }

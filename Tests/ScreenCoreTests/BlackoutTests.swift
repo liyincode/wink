@@ -10,7 +10,14 @@ final class FakeGamma: GammaDevice {
     var ignoreBlack = false
     var ignoreRestore = false
     var beforeApply: ((GammaSnapshot) -> Void)?
-    func capture() throws -> [GammaSnapshot] { screens }
+    var unreadableIDs: Set<String> = []
+    var readCount = 0
+    func read() throws -> GammaRead {
+        readCount += 1
+        return GammaRead(snapshots: screens.filter { !unreadableIDs.contains($0.id) },
+                         failures: Dictionary(uniqueKeysWithValues: screens.filter { unreadableIDs.contains($0.id) }
+                            .map { ($0.id, ScreenError("Gamma read failed: \($0.id) (1001)")) }))
+    }
     func apply(_ snapshot: GammaSnapshot) throws {
         beforeApply?(snapshot)
         if snapshot.peak == 0 && snapshot.id == failBlackFor { throw ScreenError("black failure") }
@@ -388,5 +395,142 @@ final class BlackoutTests: XCTestCase {
         try session.synchronizeDisplays()
         XCTAssertEqual(fake.screens, original)
         XCTAssertFalse(session.isActive)
+    }
+
+    func testVisibleIdleDoesNotReadGamma() throws {
+        let fake = FakeGamma()
+        fake.unreadableIDs = ["b"]
+        let session = BlackoutSession(device: fake, journal: journal)
+        session.displayConfigurationChanged()
+        try session.synchronizeDisplays()
+        XCTAssertEqual(fake.readCount, 0)
+        XCTAssertFalse(session.isActive)
+    }
+
+    func testStrictCaptureStillReportsUnreadableDisplay() throws {
+        let fake = FakeGamma()
+        fake.unreadableIDs = ["b"]
+        XCTAssertThrowsError(try fake.capture())
+        let reading = try fake.read()
+        XCTAssertEqual(reading.onlineIDs, ["a", "b"])
+        XCTAssertEqual(reading.snapshots.map(\.id), ["a"])
+    }
+
+    func testOfficeDisplayBecomesReadableAndGetsItsOwnBaseline() throws {
+        var now: TimeInterval = 10
+        let fake = FakeGamma(), original = FakeGamma().screens
+        let session = BlackoutSession(device: fake, journal: journal, uptime: { now })
+        try session.blackout()
+        let office = GammaSnapshot(id: "office", red: [0, 0.3], green: [0, 0.4], blue: [0, 0.5])
+        fake.screens = [original[0], office]
+        fake.unreadableIDs = ["office"]
+        session.displayConfigurationChanged()
+        try session.synchronizeDisplays()
+        XCTAssertEqual(fake.screens, [original[0].black, office])
+        XCTAssertEqual(session.saved, original)
+        XCTAssertFalse(try session.isBlack())
+        now += 3 // Readiness may take longer than the existing two-second settling window.
+        fake.unreadableIDs = []
+        XCTAssertFalse(try session.isBlack()) // A status query must not consume the pending ready transition.
+        fake.beforeApply = { snapshot in
+            if snapshot.id == "office" {
+                let records = try! JSONDecoder().decode([GammaSnapshot].self, from: Data(contentsOf: self.journal))
+                XCTAssertTrue(records.contains(office))
+            }
+        }
+        try session.synchronizeDisplays()
+        XCTAssertTrue(try session.isBlack())
+        XCTAssertEqual(session.saved, original + [office])
+        try session.restore()
+        XCTAssertEqual(fake.screens, [original[0], office])
+        XCTAssertEqual(session.saved, [original[1]])
+    }
+
+    func testPermanentReadFailureDoesNotRestoreHealthyDisplayOrRenewDeadline() throws {
+        var now: TimeInterval = 10
+        let fake = FakeGamma(), original = FakeGamma().screens
+        let session = BlackoutSession(device: fake, journal: journal, uptime: { now })
+        try session.blackout()
+        fake.unreadableIDs = ["b"]
+        fake.screens[0] = original[0]
+        session.displayConfigurationChanged()
+        try session.synchronizeDisplays()
+        now += 4.9
+        session.displayConfigurationChanged() // Repeated events must not restart the read retry budget.
+        try session.synchronizeDisplays()
+        now += 0.2
+        XCTAssertThrowsError(try session.synchronizeDisplays()) { XCTAssertTrue($0 is DisplayUnavailableError) }
+        XCTAssertEqual(fake.screens[0], original[0].black)
+        XCTAssertTrue(session.isDimming)
+        XCTAssertEqual(session.saved, original)
+        fake.unreadableIDs = []
+        try session.synchronizeDisplays()
+        XCTAssertTrue(try session.isBlack())
+    }
+
+    func testRestoreRecoversHealthyDisplayWhileAnotherIsUnreadable() throws {
+        var now: TimeInterval = 10
+        let fake = FakeGamma(), original = FakeGamma().screens
+        let session = BlackoutSession(device: fake, journal: journal, uptime: { now })
+        try session.blackout()
+        fake.unreadableIDs = ["b"]
+        try session.restore()
+        XCTAssertEqual(fake.screens[0], original[0])
+        XCTAssertEqual(session.saved, [original[1]])
+        XCTAssertTrue(session.isActive)
+        XCTAssertFalse(session.isDimming)
+        now += 5.1
+        XCTAssertThrowsError(try session.synchronizeDisplays()) { XCTAssertTrue($0 is DisplayUnavailableError) }
+        XCTAssertEqual(fake.screens[0], original[0])
+        fake.unreadableIDs = []
+        try session.synchronizeDisplays()
+        XCTAssertEqual(fake.screens, original)
+        XCTAssertFalse(session.isActive)
+        XCTAssertFalse(session.hasPendingRecovery)
+    }
+
+    func testRemovedUnreadableDisplayIsNotTreatedAsPermanentFailure() throws {
+        var now: TimeInterval = 10
+        let fake = FakeGamma(), original = FakeGamma().screens
+        let session = BlackoutSession(device: fake, journal: journal, uptime: { now })
+        try session.blackout()
+        fake.unreadableIDs = ["b"]
+        try session.synchronizeDisplays()
+        fake.screens.removeLast()
+        now += 6
+        try session.synchronizeDisplays()
+        XCTAssertFalse(session.hasUnavailableDisplays)
+        XCTAssertEqual(session.saved, original)
+        XCTAssertTrue(try session.isBlack())
+    }
+
+    func testManualRestoreCancelsBlackoutForLateReadyNewDisplay() throws {
+        let fake = FakeGamma(), original = FakeGamma().screens
+        let session = BlackoutSession(device: fake, journal: journal)
+        try session.blackout()
+        let office = GammaSnapshot(id: "office", red: [0, 1], green: [0, 1], blue: [0, 1])
+        fake.screens.append(office)
+        fake.unreadableIDs = ["office"]
+        try session.synchronizeDisplays()
+        try session.restore()
+        fake.unreadableIDs = []
+        try session.synchronizeDisplays()
+        XCTAssertEqual(fake.screens, original + [office])
+        XCTAssertFalse(session.isDimming)
+        XCTAssertFalse(session.isActive)
+    }
+
+    func testRestartRecoveryDoesNotBlockReadableScreen() throws {
+        let fake = FakeGamma(), original = FakeGamma().screens
+        try BlackoutSession(device: fake, journal: journal).blackout()
+        fake.unreadableIDs = ["b"]
+        let restarted = BlackoutSession(device: fake, journal: journal)
+        try restarted.recover()
+        XCTAssertEqual(fake.screens[0], original[0])
+        XCTAssertEqual(restarted.saved, [original[1]])
+        fake.unreadableIDs = []
+        try restarted.synchronizeDisplays()
+        XCTAssertEqual(fake.screens, original)
+        XCTAssertFalse(restarted.hasPendingRecovery)
     }
 }

@@ -57,6 +57,7 @@
 "Unable to keep the display session active. Displays were not darkened." = "无法保持屏幕会话运行，未调黑。";
 "Unable to list connected displays." = "无法枚举显示器。";
 "Unable to read display Gamma for %@ (error %@)." = "无法读取显示器 Gamma：%@，错误 %@。";
+"Display %@ is temporarily unavailable. Wink will keep retrying. Other displays are unchanged." = "显示器 %@ 暂时无法控制，Wink 会继续重试，其他显示器不受影响。";
 "Unable to read the display identifier." = "无法读取显示器标识。";
 "Unable to register global shortcuts. Use the menu bar." = "全局快捷键注册失败，请使用菜单栏。";
 "About Wink" = "关于 Wink";

@@ -57,6 +57,7 @@
 "Unable to keep the display session active. Displays were not darkened." = "Unable to keep the display session active. Displays were not darkened.";
 "Unable to list connected displays." = "Unable to list connected displays.";
 "Unable to read display Gamma for %@ (error %@)." = "Unable to read display Gamma for %@ (error %@).";
+"Display %@ is temporarily unavailable. Wink will keep retrying. Other displays are unchanged." = "Display %@ is temporarily unavailable. Wink will keep retrying. Other displays are unchanged.";
 "Unable to read the display identifier." = "Unable to read the display identifier.";
 "Unable to register global shortcuts. Use the menu bar." = "Unable to register global shortcuts. Use the menu bar.";
 "About Wink" = "About Wink";

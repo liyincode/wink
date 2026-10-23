@@ -81,10 +81,11 @@ if arguments.contains("--restore") || arguments.contains("--cycle-test") {
     } catch { report(error); exit(1) }
 }
 
-private let displayReconfigurationCallback: CGDisplayReconfigurationCallBack = { _, flags, context in
+private let displayReconfigurationCallback: CGDisplayReconfigurationCallBack = { display, flags, context in
     guard let context else { return }
     let owner = Unmanaged<AppDelegate>.fromOpaque(context).takeUnretainedValue()
     let beginning = flags.contains(.beginConfigurationFlag)
+    NSLog("Wink display event: id=%u flags=%u", display, flags.rawValue)
     DispatchQueue.main.async { owner.displayConfigurationChanged(beginning: beginning) }
 }
 
@@ -154,6 +155,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerShortcuts()
         if arguments.contains("--settings") { showSettings() } else { showPanel() }
         let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.displayConfigurationChanged(beginning: false)
+            })
+        }
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 self?.cancelScheduleOccurrence()
@@ -322,6 +328,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 updateStatus()
                 if !agentReplies.isEmpty { finishAgentRequests(agentStatusResponse()) }
             }
+        } catch let error as DisplayUnavailableError {
+            if !fade.isRunning { fadeTimer?.invalidate(); fadeTimer = nil }
+            if !session.isDimming { releaseAwake() }
+            updateStatus()
+            finishAgentRequests(.failure("display_unavailable", error.localizedDescription))
+            reportDisplayUnavailable(error)
         } catch {
             handleFadeFailure(error)
         }
@@ -360,11 +372,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try session.synchronizeDisplays()
             if session.isSettlingDisplays { startDisplaySettling() }
             if session.isDimming { try session.verifyBlackout() }
-            if !session.isActive || session.isDimming { reportedDisplayError = nil }
+            if !session.hasUnavailableDisplays { reportedDisplayError = nil }
             if session.isActive != wasActive {
                 fade.reset(isBlack: session.isActive)
                 updateStatus()
             }
+        } catch let error as DisplayUnavailableError {
+            reportDisplayUnavailable(error)
         } catch {
             guard reportedDisplayError != error.localizedDescription else { return }
             reportedDisplayError = error.localizedDescription
@@ -372,6 +386,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let recoveryError = performRestore(reportErrors: false)
             showError(recoveryError ?? error)
         }
+    }
+
+    func reportDisplayUnavailable(_ error: DisplayUnavailableError) {
+        guard reportedDisplayError != error.localizedDescription else { return }
+        reportedDisplayError = error.localizedDescription
+        showError(error)
     }
 
     func cancelScheduleOccurrence() {
