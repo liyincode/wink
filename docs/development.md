@@ -4,7 +4,20 @@
 
 ## Installation
 
-The prebuilt package requires macOS 13 or later and Apple Silicon (M-series chips). Unzip `Wink-0.1.0-macos-arm64.zip` and drag `Wink.app` into Applications.
+The prebuilt package requires macOS 13 or later and Apple Silicon (M-series chips).
+
+```sh
+brew install --cask liyincode/tap/wink
+```
+
+Or download the [latest release](https://github.com/liyincode/wink/releases/latest), unzip it, and drag `Wink.app` into Applications.
+
+Quit Wink before upgrading with Homebrew:
+
+```sh
+brew update
+brew upgrade --cask liyincode/tap/wink
+```
 
 Wink is not notarized by Apple. If macOS blocks it, verify the download source, then choose **System Settings → Privacy & Security → Open Anyway**. See [Apple’s guide](https://support.apple.com/102445).
 

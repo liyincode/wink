@@ -16,6 +16,10 @@ English · [简体中文](README.zh-CN.md)
 
 **macOS 13+ · Apple Silicon (M-series)**
 
+```sh
+brew install --cask liyincode/tap/wink
+```
+
 [**Download Wink**](https://github.com/liyincode/wink/releases/latest) · [Installation help](docs/development.md#installation)
 
 ## Keep in mind
