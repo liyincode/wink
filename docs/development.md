@@ -96,6 +96,7 @@ For an installed app, use `"/Applications/Wink.app/Contents/MacOS/Wink" --restor
 - A scheduled end restores only a blackout started by that schedule. It does not take over manual blackout. System sleep or detected external Gamma changes trigger a restoration attempt and skip the current period. Wink does not wake the computer.
 - Shortcut conflict detection covers system registration conflicts, not every app's internal shortcuts. Failed registration keeps the previous shortcut. Migration changes only the old default Option + Space to Control + Option + B; custom combinations remain unchanged.
 - Launch at login uses `SMAppService` and is disabled by default. While waiting for system approval, the switch indicates that registration was requested; switching it off cancels the request. Keep the app in a stable location before enabling it.
+- Login startup keeps Wink in the menu bar without opening the main panel. Opening the app manually still shows the panel; `--settings` opens settings even during login startup.
 
 ## Code and resources
 

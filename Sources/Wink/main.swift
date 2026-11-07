@@ -120,6 +120,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let launchEvent = NSAppleEventManager.shared().currentAppleEvent
+        let launchedAtLogin = launchEvent?.eventID == kAEOpenApplication &&
+            launchEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
         NSApp.setActivationPolicy(.accessory)
         NSApp.applicationIconImage = Mascot.wink
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -152,7 +155,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main) { [weak self] _ in self?.displayConfigurationChanged(beginning: false) })
         registerShortcuts()
-        if arguments.contains("--settings") { showSettings() } else { showPanel() }
+        if arguments.contains("--settings") { showSettings() }
+        else if !launchedAtLogin { showPanel() }
         let center = NSWorkspace.shared.notificationCenter
         observers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
