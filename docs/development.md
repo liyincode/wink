@@ -19,7 +19,7 @@ brew update
 brew upgrade --cask liyincode/tap/wink
 ```
 
-Wink is not notarized by Apple. If macOS blocks it, verify the download source, then choose **System Settings → Privacy & Security → Open Anyway**. See [Apple’s guide](https://support.apple.com/102445).
+The existing public releases through v0.2.1 are not notarized by Apple. If macOS blocks one of these packages, verify the download source, then choose **System Settings → Privacy & Security → Open Anyway**. See [Apple’s guide](https://support.apple.com/102445). For a signed and notarized local build, use the workflow below.
 
 ## Build and verify
 
@@ -34,7 +34,7 @@ open build/Wink.app
 
 - `swift test` checks core state, recovery transactions, and failure paths.
 - `scripts/check-ui.sh` compiles the production AppKit controls and checks clicks, mascot feedback, shortcut recording, schedules, and time wheels in English and Chinese. It requires a macOS graphical session, uses isolated state, and writes output to `.tmp/ui-check/`.
-- `scripts/build.sh` builds an ad-hoc signed `build/Wink.app` for the host architecture.
+- `scripts/build.sh` builds an ad-hoc signed `build/Wink.app` for the host architecture by default. Set `WINK_SIGNING_IDENTITY` to use a signing identity with Hardened Runtime and a secure timestamp instead.
 
 Create a release package for the host architecture:
 
@@ -44,11 +44,30 @@ bash scripts/package-release.sh
 
 The ZIP and SHA-256 checksum are written to `build/releases/`. The script builds in a fresh directory without replacing a running development app. It refuses to overwrite an existing release package. The app includes the MIT license and is not notarized by Apple.
 
-## Automated releases
+## Local Developer ID signing and notarization
 
-GitHub Actions runs core tests, English and Chinese AppKit checks, packaging, and archive verification on an Apple Silicon runner for pushes to `main` and pull requests. Build artifacts are retained for 14 days.
+Install a Developer ID Application certificate and its private key in the login Keychain. Confirm it appears in `security find-identity -v -p codesigning`. Store notarization credentials interactively; use an Apple Account app-specific password, not your regular account password:
 
-To publish a version, update the version and build number in `scripts/build.sh` and the fallback values in `Sources/Wink/AppInfo.swift`, then add `docs/releases/vX.Y.Z.md`. Commit and push the changes, then push the matching `vX.Y.Z` tag. After all checks pass, the workflow publishes a Release with the ZIP and SHA-256 checksum. Tags must match the app version; existing releases are not overwritten. No Apple signing certificate is configured, so the app remains ad-hoc signed and unnotarized.
+```sh
+xcrun notarytool store-credentials wink-notary --team-id YOUR_TEAM_ID
+```
+
+Then build, submit to Apple, staple the accepted ticket, and verify the final archive:
+
+```sh
+WINK_SIGNING_IDENTITY="Developer ID Application: Your Name (YOUR_TEAM_ID)" \
+  bash scripts/notarize-release.sh
+```
+
+The script enables Hardened Runtime and secure timestamping. It requires an accepted notarization result and successful ticket, signature, and Gatekeeper checks before producing `build/notarized/Wink-VERSION-macos-ARCH.zip` and its SHA-256 checksum. It refuses to overwrite an existing output. Submission evidence stays under `.tmp/notarization/`; this directory can contain an accepted app even if a later packaging step fails. Inspect the saved submission ID before retrying an interrupted upload, rather than submitting it again blindly. `WINK_NOTARY_PROFILE` selects an alternative Keychain profile.
+
+This command submits the app to Apple's notary service but does not publish a GitHub Release, update Homebrew, or replace an installed app. CI artifacts use ad-hoc signing and are not the notarized release assets. Never commit certificates with private keys, passwords, or notarization API keys.
+
+## CI and publishing
+
+GitHub Actions runs core tests, English and Chinese AppKit checks, packaging, and archive verification on an Apple Silicon runner for pushes to `main`, version tags, and pull requests. Build artifacts are retained for 14 days.
+
+To publish a version, update the version and build number in `scripts/build.sh` and the fallback values in `Sources/Wink/AppInfo.swift`, then add `docs/releases/vX.Y.Z.md`. Build and notarize locally using the workflow above. Commit and push the changes and the matching `vX.Y.Z` tag, then wait for CI to pass. Publish only the verified ZIP and checksum from `build/notarized/`, using the matching release notes. Download the published assets and verify their checksum, signature, stapled ticket, version, and Gatekeeper assessment before updating the Homebrew Cask version and checksum. Tags must match the app version; do not overwrite existing releases. CI does not publish releases or receive Apple credentials or private keys.
 
 CI checks do not exercise physical display blackout, hot-plug behavior, or Gatekeeper prompts after downloading.
 

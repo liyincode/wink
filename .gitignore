@@ -11,6 +11,18 @@ build/
 .idea/
 .codex/
 .claude/
+# Local Apple signing certificates, private keys, and provisioning files.
+*.cer
+*.certSigningRequest
+*.p12
+*.pfx
+*.p8
+*.pem
+*.key
+*.keychain
+*.keychain-db
+*.mobileprovision
+*.provisionprofile
 # Local agent instructions and development history (all directories).
 [Aa][Gg][Ee][Nn][Tt][Ss].[Mm][Dd]
 [Rr][Oo][Aa][Dd][Mm][Aa][Pp].[Mm][Dd]
